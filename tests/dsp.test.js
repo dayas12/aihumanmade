@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyze, transform, finish, encodeWav, presets, phaseRotate } from '../src/dsp.js';
 import { parsePreset, serializePreset } from '../src/preset-file.js';
+import { APP_NAME, exportMetadata, infoChunk } from '../src/export-profile.js';
 const rate = 44100;
 const sine = (hz, seconds = 2, amplitude = 0.5) => Float32Array.from({ length: rate * seconds }, (_, i) => amplitude * Math.sin(2 * Math.PI * hz * i / rate));
 const frequency = data => {
@@ -48,7 +49,8 @@ test('silence stays silent with effects and WAV has valid PCM headers', () => {
     assert.equal(view.getUint16(34, true), bits);
     assert.equal(view.getUint16(22, true), 1);
     assert.equal(view.getUint32(24, true), rate);
-    assert.equal(encoded.byteLength, 44 + result.channels[0].length * bits / 8);
+    const payload = result.channels[0].length * bits / 8;
+    assert.equal(encoded.byteLength, 44 + payload + payload % 2);
     assert.ok(new Uint8Array(encoded, 44).every(v => v === 0));
   }
 });
@@ -100,4 +102,56 @@ test('malformed or out-of-range preset files are rejected', () => {
   for (const values of [{ allpass: 101 }, { protect: 'false' }, { pitch: 42.5 }, { room: -1 }, { tempo: '102' }, { ceiling: 0 }]) {
     assert.throws(() => parsePreset(serializePreset('Bad values', values)));
   }
+});
+
+function readInfo(buffer) {
+  const view = new DataView(buffer), bytes = new Uint8Array(buffer), decoder = new TextDecoder();
+  const text = (at, length) => decoder.decode(bytes.slice(at, at + length));
+  const result = {};
+  for (let offset = 12; offset + 8 <= bytes.length;) {
+    const id = text(offset, 4), size = view.getUint32(offset + 4, true);
+    assert.ok(offset + 8 + size <= bytes.length);
+    if (id === 'LIST' && text(offset + 8, 4) === 'INFO') {
+      for (let at = offset + 12; at < offset + 8 + size;) {
+        const field = text(at, 4), length = view.getUint32(at + 4, true);
+        result[field] = text(at + 8, length - 1); at += 8 + length + length % 2;
+      }
+    }
+    offset += 8 + size + size % 2;
+  }
+  return result;
+}
+
+test('Ableton export label is written to WAV INFO while retaining actual processor', () => {
+  const metadata = exportMetadata('ableton12', 'Lagu saya');
+  const wav = encodeWav([new Float32Array(5)], 44100, 24, metadata);
+  assert.equal(new DataView(wav).getUint32(4, true), wav.byteLength - 8);
+  assert.equal(new DataView(wav).getUint32(40, true), 15);
+  assert.equal(new Uint8Array(wav)[59], 0); // odd-length data gets a pad before LIST
+  assert.deepEqual(readInfo(wav), metadata);
+  assert.equal(metadata.ISFT, APP_NAME);
+  assert.match(metadata.ICMT, /User-selected export profile: Ableton Live 12 Master/);
+  assert.match(metadata.ICMT, /not an Ableton application render/);
+});
+
+test('metadata leaves PCM sample layout intact for 16 and 24 bit mono/stereo', () => {
+  for (const bits of [16, 24]) for (const channelCount of [1, 2]) {
+    const samples = Array.from({ length: channelCount }, (_, c) => new Float32Array([0, .25 * (c ? -1 : 1), -.5, 0, .1]));
+    const meta = exportMetadata('standard', 'Judul é 日本');
+    const wav = encodeWav(samples, 48000, bits, meta), view = new DataView(wav);
+    const scale = 2 ** (bits - 1), bytes = bits / 8;
+    for (let i = 0; i < 5; i++) for (let c = 0; c < channelCount; c++) {
+      const at = 44 + (i * channelCount + c) * bytes;
+      const value = bits === 16 ? view.getInt16(at, true) : (view.getUint8(at) | (view.getUint8(at + 1) << 8) | (view.getInt8(at + 2) << 16));
+      assert.ok(Math.abs(value - samples[c][i] * scale) <= 1.5);
+    }
+    assert.deepEqual(readInfo(wav), meta);
+  }
+});
+
+test('metadata filters unsupported tags and invalid profiles', () => {
+  assert.throws(() => exportMetadata('unknown', 'Track'));
+  assert.equal(infoChunk({ unknown: 'ignored' }).length, 0);
+  const wav = encodeWav([new Float32Array(2)], 44100, 16, { INAM: 'a\0b', ISFT: APP_NAME, '<script>': 'ignore' });
+  assert.deepEqual(readInfo(wav), { INAM: 'ab', ISFT: APP_NAME });
 });

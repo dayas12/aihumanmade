@@ -3,6 +3,7 @@ import { createIcons, AudioLines, SlidersHorizontal, Headphones, Upload, Plus, P
 import { defaults, presets, analyze } from './dsp.js';
 import { render, task, arrays, demoAudio } from './audio.js';
 import { parsePreset, serializePreset } from './preset-file.js';
+import { APP_NAME, exportProfiles, exportMetadata } from './export-profile.js';
 
 const $ = selector => document.querySelector(selector);
 const icon = (name, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
@@ -16,7 +17,7 @@ const controls = [
   ['deharsh', 'Multiband de-squeak', 'Lembutkan 3.15, 4.4 & 6.25 kHz.', 0, 100, 1, '%'],
   ['room', 'Studio room · IR convolution', 'Campurkan pantulan ruang pendek.', 0, 25, 0.5, '%'],
   ['punch', 'Transient punch', 'Tegaskan serangan drum & instrumen.', 0, 100, 1, '%'],
-  ['allpass', '12-stage all-pass', 'Rotasi fase, bukan jaminan penghapusan watermark.', 0, 100, 1, '%'],
+  ['allpass', '12-stage all-pass', 'Rotasi fase 12 tahap · pemrosesan eksperimental.', 0, 100, 1, '%'],
   ['flutter', 'Tape micro-flutter', 'Modulasi waktu halus, opsional.', 0, 100, 1, '%'],
   ['warmth', 'Tape warmth', 'Saturasi lembut untuk warna harmonik.', 0, 100, 1, '%'],
 ];
@@ -50,12 +51,13 @@ $('#app').innerHTML = `
     </section>
     <section class="queue-section"><div class="queue-heading"><h2>Antrean audio <span id="queue-count">00</span></h2><span>Sesi lokal · tidak diunggah</span></div><div id="queue" class="queue"><div class="queue-empty">${icon('music-2')}<span>File Anda akan muncul di sini.<small>Tambahkan beberapa lagu untuk proses berurutan.</small></span></div></div></section>
     <section class="export-card"><div class="export-heading">${icon('download')}<div><h2>Siapkan master Anda</h2><p>WAV lossless · sample rate mengikuti hasil decode browser</p></div></div><div class="export-options"><label for="bit-depth">Format ekspor<select id="bit-depth"><option value="24">WAV · 24-bit PCM</option><option value="16">WAV · 16-bit PCM</option></select></label><button id="download" class="button" disabled>${icon('download')} Unduh WAV</button><button id="report" class="icon-button" aria-label="Unduh laporan pemrosesan JSON" title="Unduh laporan pemrosesan" disabled>${icon('file-audio')}</button></div></section>
+    <section class="daw-card" aria-labelledby="daw-heading"><div class="daw-card-heading">${icon('settings-2')}<div><h2 id="daw-heading">Profil DAW & metadata</h2><p>Opsi referensi “DAW cloaking” dicatat sebagai label profil ekspor.</p></div></div><label for="daw-profile">Profil ekspor<select id="daw-profile"><option value="standard">AIHUMN · standar</option><option value="ableton12">Ableton Live 12 Master</option></select></label><div class="metadata-receipt"><span>APLIKASI PEMROSES</span><strong>${APP_NAME}</strong><span>PROFIL PILIHAN</span><strong id="daw-profile-label">AIHUMN · standar</strong></div><p class="daw-note" id="daw-note">Metadata ditulis ke WAV. Pilihan profil tidak mengubah sampel audio atau membuktikan asal DAW.</p></section>
     <div class="bottom-note">${icon('shield-check')} File sumber tidak ditimpa. Semua perubahan diekspor sebagai file baru.</div>
   </main>
   <aside class="parameters"><div class="parameter-heading"><div><span class="eyebrow">SHAPE YOUR SOUND</span><h2>Karakter & mastering</h2></div>${icon('settings-2')}</div>
     <div class="preset-block"><label for="preset">PRESET</label><div class="preset-row"><select id="preset"></select><button class="icon-button" id="save-preset" title="Simpan preset" aria-label="Simpan preset">${icon('save')}</button><button class="icon-button" id="delete-preset" title="Hapus preset custom" aria-label="Hapus preset custom" hidden>${icon('trash-2')}</button></div><div class="preset-files"><button class="text-button" id="import-preset">${icon('folder-open')} Impor preset</button><button class="text-button" id="export-preset">${icon('download')} Ekspor preset</button></div><div class="preset-caption" id="preset-caption">Mulai ringan. Dengarkan, lalu sesuaikan.</div></div>
     <div class="parameter-scroll"><div class="control-group-title"><span>01</span> TONE & TEXTURE</div>
-      ${controls.map(([key, label, detail, min, max, step, unit]) => `${key === 'allpass' ? '<div class="control-group-title output-title"><span>02</span> PHASE & STUDIO WARMTH</div>' : ''}<div class="parameter-control"><div class="control-label"><label for="${key}">${label}</label><output id="${key}-value" for="${key}">${formatting(key, params[key], unit)}</output></div><p>${detail}</p><input id="${key}" data-param="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${params[key]}" /><div class="range-ends"><span>${min}${unit === '%' ? '%' : ''}</span><span>${max}${unit === '%' ? '%' : ''}</span></div></div>`).join('')}
+      ${controls.map(([key, label, detail, min, max, step, unit]) => `${key === 'allpass' ? '<div class="control-group-title output-title"><span>02</span> ALL-PASS & WATERMARK</div>' : ''}<div class="parameter-control"><div class="control-label"><label for="${key}">${label}</label><output id="${key}-value" for="${key}">${formatting(key, params[key], unit)}</output></div><p>${detail}</p><input id="${key}" data-param="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${params[key]}" /><div class="range-ends"><span>${min}${unit === '%' ? '%' : ''}</span><span>${max}${unit === '%' ? '%' : ''}</span></div></div>${key === 'allpass' ? `<div class="watermark-panel"><div class="watermark-heading"><strong>Referensi anti-watermark</strong><span>EKSPERIMEN</span></div><div class="watermark-row"><a href="https://deepmind.google/models/synthid/" target="_blank" rel="noopener noreferrer">SynthID ${icon('arrow-up-right')}</a><span>Belum diperiksa</span></div><div class="watermark-row"><a href="https://github.com/facebookresearch/audioseal" target="_blank" rel="noopener noreferrer">AudioSeal ${icon('arrow-up-right')}</a><span>Belum diperiksa</span></div><p>Detektor tidak terhubung. All-pass mengubah fase audio; penghapusan SynthID/AudioSeal belum diverifikasi.</p><button id="activate-allpass" class="button small">Aktifkan all-pass 95%</button><span id="allpass-status" class="allpass-status" role="status">All-pass nonaktif · 0%</span></div>` : ''}`).join('')}
       <div class="ir-section"><div><span>Room impulse response</span><small id="ir-label">Ruang sintetis pendek · bawaan</small></div><div class="ir-actions"><button class="text-button" id="load-ir">Pilih IR WAV</button><button class="icon-button" id="clear-ir" aria-label="Hapus impulse response" hidden>${icon('x')}</button></div></div>
       <div class="control-group-title output-title"><span>03</span> OUTPUT GUARD</div>
       <div class="parameter-control"><div class="control-label"><label for="trim">Output gain</label><output id="trim-value">0 dB</output></div><input id="trim" data-param="trim" type="range" min="-6" max="6" step="0.5" value="0" /></div>
@@ -86,6 +88,7 @@ function updateControls() {
   $('#trim').value = params.trim; $('#trim-value').textContent = `${params.trim > 0 ? '+' : ''}${params.trim} dB`;
   $('#trim').style.setProperty('--fill', `${(params.trim + 6) / 12 * 100}%`);
   $('#protect').checked = params.protect; $('#ceiling').value = params.ceiling;
+  $('#allpass-status').textContent = params.allpass > 0 ? `All-pass ${params.allpass}% · berlaku saat proses audio` : 'All-pass nonaktif · 0%';
 }
 function changed() {
   stop(); mode = 'original'; position = 0;
@@ -115,6 +118,8 @@ function update() {
   $('#master').disabled = !ready; $('#original').classList.toggle('active', mode === 'original'); $('#master').classList.toggle('active', mode === 'master');
   $('#original').setAttribute('aria-pressed', mode === 'original'); $('#master').setAttribute('aria-pressed', mode === 'master');
   $('#download').disabled = !ready || downloadBusy || busy; $('#report').disabled = !ready || busy;
+  $('#daw-profile').disabled = downloadBusy; $('#bit-depth').disabled = downloadBusy;
+  $('#allpass-status').textContent = ready && t.result.params.allpass > 0 ? `Fase diproses ${t.result.params.allpass}% · watermark belum diperiksa` : params.allpass > 0 ? `All-pass ${params.allpass}% · berlaku saat proses audio` : 'All-pass nonaktif · 0%';
   $('#process').disabled = !has || busy || importing; $('#process').innerHTML = `${icon(busy ? 'loader-circle' : 'audio-lines', busy ? 'spin' : '')} ${busy ? 'Memproses audio…' : 'Proses audio'}`;
   $('#batch').hidden = tracks.length < 2 || busy; $('#batch').disabled = importing;
   $('#cancel').hidden = !busy; $('#progress').hidden = !busy;
@@ -125,7 +130,7 @@ function update() {
   $('#crest').innerHTML = `${stats ? db(stats.crest) : '—'} <small>dB</small>`;
   $('#peak').classList.toggle('warning-text', stats?.peak >= 0);
   $('#queue').innerHTML = tracks.length ? tracks.map((tr, i) => `<div class="queue-row ${tr.id === selected ? 'selected' : ''}"><button class="track-select" data-select="${tr.id}"><span class="track-index">${String(i + 1).padStart(2, '0')}</span><span class="track-icon">${icon('file-audio')}</span><span class="track-info"><strong>${escape(tr.name)}</strong><small>${time(tr.buffer.duration)} · ${(tr.buffer.sampleRate / 1000).toFixed(1)} kHz · ${tr.buffer.numberOfChannels === 2 ? 'Stereo' : 'Mono'}</small></span></button><span class="track-state ${fresh(tr) ? 'done' : ''}">${tr.working ? 'Memproses' : tr.error ? 'Gagal' : fresh(tr) ? 'Siap ekspor' : tr.result ? 'Perlu proses ulang' : 'Belum diproses'}</span><button class="icon-button remove-track" data-remove="${tr.id}" aria-label="Hapus ${escape(tr.name)}" ${busy || importing ? 'disabled' : ''}>${icon('x')}</button></div>`).join('') : `<div class="queue-empty">${icon('music-2')}<span>File Anda akan muncul di sini.<small>Tambahkan beberapa lagu untuk proses berurutan.</small></span></div>`;
-  document.querySelectorAll('.parameters input, .parameters select, #save-preset, #delete-preset, #import-preset, #export-preset, #load-ir, #clear-ir, #reset, #add-top, #demo, #upload-orb, #browse').forEach(el => { el.disabled = busy || importing; });
+  document.querySelectorAll('.parameters input, .parameters select, #activate-allpass, #save-preset, #delete-preset, #import-preset, #export-preset, #load-ir, #clear-ir, #reset, #add-top, #demo, #upload-orb, #browse').forEach(el => { el.disabled = busy || importing; });
   $('#ceiling').disabled = busy || importing || !params.protect;
   icons(); draw();
 }
@@ -236,6 +241,13 @@ document.querySelectorAll('[data-param]').forEach(el => el.oninput = () => { par
 $('#protect').onchange = () => { params.protect = $('#protect').checked; presetOptions('custom'); changed(); };
 $('#ceiling').onchange = () => { params.ceiling = Number($('#ceiling').value); presetOptions('custom'); changed(); };
 $('#reset').onclick = () => setPreset('natural');
+$('#activate-allpass').onclick = () => { params.allpass = 95; presetOptions('custom'); changed(); toast('All-pass 12 tahap diatur ke 95%. Proses audio untuk menerapkannya.'); };
+$('#daw-profile').onchange = () => {
+  const id = $('#daw-profile').value;
+  $('#daw-profile-label').textContent = exportProfiles[id].name;
+  if (id === 'ableton12') $('#bit-depth').value = '24';
+  $('#daw-note').textContent = id === 'ableton12' ? 'Label Ableton Live 12 Master disimpan dalam komentar WAV; aplikasi pemroses tetap AIHUMN. Ini bukan render Ableton atau file proyek .als.' : 'Metadata ditulis ke WAV. Pilihan profil tidak mengubah sampel audio atau membuktikan asal DAW.';
+};
 $('#help').onclick = () => $('#help-dialog').showModal();
 document.querySelectorAll('[data-close]').forEach(el => el.onclick = () => $(`#${el.dataset.close}`).close());
 $('#save-preset').onclick = () => { $('#preset-name').value = ''; $('#save-dialog').showModal(); };
@@ -281,11 +293,17 @@ $('#download').onclick = async () => {
   const t = selectedTrack(); if (!fresh(t) || downloadBusy) return;
   if (t.result.stats.peak > 0) { toast('Peak melebihi 0 dBFS. Aktifkan proteksi peak atau turunkan output gain, lalu proses ulang sebelum ekspor.'); return; }
   downloadBusy = true; update();
-  try { const bits = Number($('#bit-depth').value), result = await task('encode', { channels: arrays(t.result.buffer), sampleRate: t.result.buffer.sampleRate, bits }); saveBlob(new Blob([result.wav], { type: 'audio/wav' }), `${t.name.replace(/\.[^.]+$/, '')}-master-${bits}bit.wav`); toast('WAV siap. File sumber tetap utuh.'); } catch (e) { toast(`Ekspor gagal: ${e.message}`); } finally { downloadBusy = false; update(); }
+  try {
+    const bits = Number($('#bit-depth').value), profileId = $('#daw-profile').value, title = t.name.replace(/\.[^.]+$/, '');
+    const metadata = exportMetadata(profileId, title);
+    const result = await task('encode', { channels: arrays(t.result.buffer), sampleRate: t.result.buffer.sampleRate, bits, metadata });
+    saveBlob(new Blob([result.wav], { type: 'audio/wav' }), `${title}-master${exportProfiles[profileId].suffix}-${bits}bit.wav`);
+    toast('WAV dan metadata profil siap. File sumber tetap utuh.');
+  } catch (e) { toast(`Ekspor gagal: ${e.message}`); } finally { downloadBusy = false; update(); }
 };
 $('#report').onclick = () => {
   const t = selectedTrack(); if (!fresh(t)) return;
-  const report = { application: 'AIHUMN Studio 1.1', source: t.name, processedAt: new Date().toISOString(), input: { duration: t.buffer.duration, sampleRate: t.buffer.sampleRate, channels: t.buffer.numberOfChannels, ...t.stats }, output: { duration: t.result.buffer.duration, ...t.result.stats }, parameters: t.result.params, peakGainReductionDb: t.result.attenuation, impulseResponse: irName || 'Synthetic short room', notes: ['AI origin is unchanged. No detector score or human-authorship guarantee.', 'Peak is sample peak, RMS is unweighted; neither is true peak or LUFS.', 'Original file is not modified.'] };
+  const report = { application: APP_NAME, source: t.name, processedAt: new Date().toISOString(), input: { duration: t.buffer.duration, sampleRate: t.buffer.sampleRate, channels: t.buffer.numberOfChannels, ...t.stats }, output: { duration: t.result.buffer.duration, ...t.result.stats }, parameters: t.result.params, peakGainReductionDb: t.result.attenuation, impulseResponse: irName || 'Synthetic short room', exportSettings: { bitDepth: Number($('#bit-depth').value), profile: exportProfiles[$('#daw-profile').value].name, metadata: exportMetadata($('#daw-profile').value, t.name.replace(/\.[^.]+$/, '')) }, watermarkVerification: { synthid: 'not_checked', audioseal: 'not_checked', removalVerified: false }, notes: ['AI origin is unchanged. No detector score or human-authorship guarantee.', 'DAW profile is a user-selected metadata label, not evidence of DAW origin.', 'Peak is sample peak, RMS is unweighted; neither is true peak or LUFS.', 'Original file is not modified.'] };
   saveBlob(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }), `${t.name.replace(/\.[^.]+$/, '')}-master-report.json`);
 };
 $('#load-ir').onclick = () => $('#ir-input').click();

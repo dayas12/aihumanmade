@@ -90,6 +90,24 @@ Label “Anti-Watermark” pada referensi tidak digunakan sebagai klaim fungsi. 
 
 Tombol **Simpan**, **Hapus**, **Impor preset**, dan **Ekspor preset** tersedia di panel preset. Ekspor JSON menyertakan seluruh parameter termasuk all-pass. Impor memeriksa format dan batas parameter, lalu menyimpan preset di browser bila localStorage tersedia. File IR tetap dipilih terpisah. Salinan preset siap impor disertakan di `public/presets/referensi-gambar.json`.
 
+### Panel watermark dan profil DAW · versi 1.2
+
+Panel **All-pass & watermark** menyediakan tombol aktivasi 12-stage all-pass 95% tanpa mengubah pitch, tempo, atau efek lain. Status fase mengacu pada lagu yang sedang dipilih. Kartu **SynthID** dan **AudioSeal** selalu menampilkan **Belum diperiksa**, termasuk setelah mastering: aplikasi tidak menjalankan kedua detektor dan tidak menyediakan penghapusan watermark yang tervalidasi. Tidak ada skor deteksi sintetis atau hasil “bersih” yang dibuat-buat.
+
+Google menjelaskan SynthID sebagai teknologi penandaan konten AI yang mencakup audio. AudioSeal memiliki model generator dan detector tersendiri. All-pass umum bukan implementasi kedua model tersebut. Referensi resmi: [Google DeepMind SynthID](https://deepmind.google/models/synthid/) dan [Meta AudioSeal](https://github.com/facebookresearch/audioseal).
+
+Pada bagian **Profil DAW & metadata**, tersedia **Ableton Live 12 Master** sebagai label profil ekspor pilihan pengguna. Memilihnya mengatur format awal ke WAV 24-bit; pengguna tetap boleh mengganti menjadi 16-bit. Perubahan profil tidak memerlukan proses audio ulang karena tidak mengubah pemrosesan sampel.
+
+Metadata RIFF `LIST/INFO` benar-benar ditulis ke file WAV:
+
+| Tag | Nilai |
+|---|---|
+| `INAM` | Nama lagu |
+| `ISFT` | `AIHUMN Studio 1.2`, aplikasi pemroses sebenarnya |
+| `ICMT` | Profil pilihan `Ableton Live 12 Master` dan keterangan bahwa hasil diproses AIHUMN, bukan render aplikasi Ableton |
+
+Fitur ini tidak menyamarkan asal audio sebagai render Ableton, mengintegrasikan aplikasi Ableton, menulis proyek `.als`, atau membuktikan bahwa musik dibuat manusia. Metadata ekspor dan status watermark juga masuk ke laporan JSON. Dukungan pembacaan tag dan judul UTF-8 berbeda antar pemutar/DAW; data PCM tetap mengikuti spesifikasi RIFF WAV dengan padding chunk yang benar.
+
 Reverb bawaan merupakan **simulasi ruang**, bukan rekaman ruang fisik. Impor IR WAV mono/stereo hingga 3 detik dan 5 MB untuk memakai rekaman ruang pilihan. Ekor reverb dipertahankan, sehingga durasi hasil bisa sedikit lebih panjang. IR hanya hidup selama sesi browser.
 
 ## Menjaga sumber dan memahami hasil
@@ -123,7 +141,7 @@ public/vendor/      Distribusi SoundTouchJS tanpa modifikasi
 ## Verifikasi yang dilakukan
 
 - Build produksi Vite berhasil.
-- Sebelas uji numerik lulus: bypass, separasi stereo, frekuensi pitch, durasi tempo, kombinasi pitch/tempo, peak/silence, header dan interleave PCM, respons magnitudo/energi all-pass pada empat sample rate, stabilitas dan stereo, serta validasi file preset.
+- Empat belas uji numerik dan format lulus: bypass, separasi stereo, frekuensi pitch, durasi tempo, kombinasi pitch/tempo, peak/silence, header dan interleave PCM, respons magnitudo/energi all-pass pada empat sample rate, stabilitas dan stereo, validasi file preset, serta penulisan metadata dan padding RIFF untuk mono/stereo 16/24-bit.
 - Chrome desktop dan viewport mobile: impor demo, proses, pemutaran, A/B, ekspor WAV 24-bit, impor kembali, batch, preset custom tersimpan, penghapusan preset, error file rusak, dan dialog panduan berhasil.
 - Tidak ada error JavaScript pada alur browser tersebut.
 - Header CSP Vercel diuji pada preview; aplikasi, worker, dan unduhan tetap berfungsi tanpa resource eksternal.

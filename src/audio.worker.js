@@ -12,7 +12,7 @@ self.onmessage = ({ data }) => {
       const result = finish(data.channels, data.params);
       self.postMessage(result, result.channels.map(c => c.buffer));
     } else if (data.type === 'encode') {
-      const wav = encodeWav(data.channels, data.sampleRate, data.bits);
+      const wav = encodeWav(data.channels, data.sampleRate, data.bits, data.metadata);
       self.postMessage({ wav }, [wav]);
     }
   } catch (error) { self.postMessage({ error: error.message }); }

@@ -1,4 +1,5 @@
 import { SoundTouch, SimpleFilter } from 'soundtouchjs';
+import { infoChunk } from './export-profile.js';
 
 export const defaults = { pitch: 0, tempo: 100, deharsh: 15, room: 3, punch: 8, allpass: 0, warmth: 6, flutter: 0, trim: 0, ceiling: -1, protect: true };
 export const presets = {
@@ -114,10 +115,12 @@ export function finish(channels, params) {
 }
 
 // PCM with TPDF dither. Dither is skipped on exact silence.
-export function encodeWav(channels, sampleRate, bits = 24) {
+export function encodeWav(channels, sampleRate, bits = 24, metadata = {}) {
   if (![16, 24].includes(bits)) throw new Error('Bit depth tidak didukung.');
   const count = channels.length, frames = channels[0].length, bytes = bits / 8;
-  const buffer = new ArrayBuffer(44 + frames * count * bytes);
+  const dataBytes = frames * count * bytes;
+  const info = infoChunk(metadata), infoOffset = 44 + dataBytes + dataBytes % 2;
+  const buffer = new ArrayBuffer(infoOffset + info.length);
   const view = new DataView(buffer);
   const str = (at, value) => [...value].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
   str(0, 'RIFF'); view.setUint32(4, buffer.byteLength - 8, true); str(8, 'WAVE');
@@ -135,5 +138,6 @@ export function encodeWav(channels, sampleRate, bits = 24) {
     else { view.setUint8(offset, value & 255); view.setUint8(offset + 1, (value >> 8) & 255); view.setUint8(offset + 2, (value >> 16) & 255); }
     offset += bytes;
   }
+  new Uint8Array(buffer).set(info, infoOffset);
   return buffer;
 }
