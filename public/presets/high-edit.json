@@ -1,0 +1,25 @@
+{
+  "schema": "aihumn.preset",
+  "version": 1,
+  "name": "High Edit (target deteksi 25%)",
+  "values": {
+    "pitch": 42,
+    "tempo": 102,
+    "deharsh": 85,
+    "room": 16,
+    "punch": 75,
+    "allpass": 95,
+    "warmth": 70,
+    "flutter": 55,
+    "air": 70,
+    "noiseEnabled": true,
+    "noiseDb": -58,
+    "loudnessEnabled": true,
+    "targetLufs": -11.5,
+    "monoBass": 140,
+    "dither": true,
+    "trim": 0,
+    "ceiling": -1,
+    "protect": true
+  }
+}

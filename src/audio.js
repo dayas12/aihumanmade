@@ -1,4 +1,5 @@
 import { analyze } from './dsp.js';
+import { integratedLufs } from './mastering.js';
 export const arrays = buffer => Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c).slice());
 export function asBuffer(channels, sampleRate) {
   const buffer = new AudioBuffer({ numberOfChannels: channels.length, length: channels[0].length, sampleRate });
@@ -59,8 +60,8 @@ export async function render(buffer, params, ir, signal, progress) {
   const rendered = await context.startRendering();
   if (signal.aborted) throw new DOMException('Dibatalkan', 'AbortError');
   progress(0.85, 'Memeriksa peak & menyiapkan hasil…');
-  const final = await task('finish', { channels: arrays(rendered), params }, signal);
-  return { buffer: asBuffer(final.channels, sampleRate), stats: final.stats, attenuation: final.attenuation, params: { ...params } };
+  const final = await task('finish', { channels: arrays(rendered), sampleRate, params }, signal);
+  return { buffer: asBuffer(final.channels, sampleRate), stats: final.stats, attenuation: final.attenuation, loudness: final.loudness, params: { ...params } };
 }
 export function demoAudio() {
   const sampleRate = 44100, duration = 12;
@@ -78,5 +79,5 @@ export function demoAudio() {
     }
   }
   const buffer = asBuffer(ch, sampleRate);
-  return { buffer, stats: analyze(ch) };
+  return { buffer, stats: { ...analyze(ch), lufs: integratedLufs(ch, sampleRate) } };
 }

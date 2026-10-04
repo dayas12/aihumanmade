@@ -1,6 +1,6 @@
 import { defaults } from './dsp.js';
 
-const limits = { pitch: [-50, 50, 1], tempo: [98, 102, 0.1], deharsh: [0, 100, 1], room: [0, 25, 0.5], punch: [0, 100, 1], allpass: [0, 100, 1], flutter: [0, 100, 1], warmth: [0, 100, 1], trim: [-6, 6, 0.5] };
+const limits = { pitch: [-50, 50, 1], tempo: [98, 102, 0.1], deharsh: [0, 100, 1], room: [0, 25, 0.5], punch: [0, 100, 1], allpass: [0, 100, 1], flutter: [0, 100, 1], warmth: [0, 100, 1], air: [0, 100, 1], noiseDb: [-90, -40, .5], targetLufs: [-24, -8, .5], trim: [-6, 6, 0.5] };
 export function parsePreset(text) {
   let data;
   try { data = JSON.parse(text); } catch { throw new Error('File bukan JSON yang valid.'); }
@@ -13,9 +13,13 @@ export function parsePreset(text) {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max || Math.abs(steps - Math.round(steps)) > 1e-6) throw new Error(`Nilai ${key} tidak valid.`);
     values[key] = value;
   }
-  if ('protect' in data.values) {
-    if (typeof data.values.protect !== 'boolean') throw new Error('Nilai proteksi peak tidak valid.');
-    values.protect = data.values.protect;
+  for (const key of ['protect', 'noiseEnabled', 'loudnessEnabled', 'dither']) if (key in data.values) {
+    if (typeof data.values[key] !== 'boolean') throw new Error(`Nilai ${key} tidak valid.`);
+    values[key] = data.values[key];
+  }
+  if ('monoBass' in data.values) {
+    if (![0, 80, 100, 120, 140, 160, 200].includes(data.values.monoBass)) throw new Error('Frekuensi mono sub-bass tidak valid.');
+    values.monoBass = data.values.monoBass;
   }
   if ('ceiling' in data.values) {
     if (![-1, -1.5, -2].includes(data.values.ceiling)) throw new Error('Batas peak tidak valid.');

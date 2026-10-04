@@ -1,13 +1,15 @@
 import { SoundTouch, SimpleFilter } from 'soundtouchjs';
 import { infoChunk } from './export-profile.js';
+import { exciteAir, monoSubBass, addShapedNoise, integratedLufs } from './mastering.js';
 
-export const defaults = { pitch: 0, tempo: 100, deharsh: 15, room: 3, punch: 8, allpass: 0, warmth: 6, flutter: 0, trim: 0, ceiling: -1, protect: true };
+export const defaults = { pitch: 0, tempo: 100, deharsh: 15, room: 3, punch: 8, allpass: 0, warmth: 6, flutter: 0, air: 0, noiseEnabled: false, noiseDb: -58, loudnessEnabled: false, targetLufs: -14, monoBass: 0, dither: true, trim: 0, ceiling: -1, protect: true };
 export const presets = {
   natural: { name: 'Natural · sentuhan ringan', values: { ...defaults } },
   warm: { name: 'Warm · lembut & dekat', values: { ...defaults, deharsh: 25, room: 5, punch: 12, warmth: 25 } },
   reference: { name: 'Referensi · karakter kuat', values: { ...defaults, pitch: 46, tempo: 102, deharsh: 85, room: 16, punch: 75, flutter: 55, warmth: 20 } },
   screenshot: { name: 'Referensi gambar · +42c / 12-stage', values: { ...defaults, pitch: 42, tempo: 102, deharsh: 85, room: 16, punch: 75, allpass: 95, flutter: 55, warmth: 0 } },
-  bypass: { name: 'Bypass · tanpa efek', values: { pitch: 0, tempo: 100, deharsh: 0, room: 0, punch: 0, allpass: 0, warmth: 0, flutter: 0, trim: 0, ceiling: -1, protect: false } },
+  highEdit: { name: 'High Edit (target deteksi 25%)', values: { ...defaults, pitch: 42, tempo: 102, deharsh: 85, room: 16, punch: 75, allpass: 95, flutter: 55, air: 70, warmth: 70, noiseEnabled: true, noiseDb: -58, loudnessEnabled: true, targetLufs: -11.5, monoBass: 140, dither: true } },
+  bypass: { name: 'Bypass · tanpa efek', values: { ...defaults, pitch: 0, tempo: 100, deharsh: 0, room: 0, punch: 0, allpass: 0, warmth: 0, flutter: 0, trim: 0, ceiling: -1, protect: false } },
 };
 
 // H(z) = (a + z^-1) / (1 + a*z^-1): unity magnitude, frequency-dependent phase.
@@ -87,6 +89,8 @@ export function transform(channels, sampleRate, params, progress = () => {}) {
   const drive = 1 + params.warmth / 100 * 1.4;
   const wet = params.warmth / 100 * 0.35;
   const gain = 10 ** (params.trim / 20);
+  const bias = 0.15, biasValue = Math.tanh(bias), dcPole = Math.exp(-2 * Math.PI * 5 / sampleRate);
+  const previousWet = channels.map(() => 0), previousDc = channels.map(() => 0);
   const flutterInput = params.flutter > 0 ? output.map(c => c.slice()) : null;
   for (let i = 0; i < n; i++) {
     let amplitude = 0;
@@ -99,23 +103,39 @@ export function transform(channels, sampleRate, params, progress = () => {}) {
     for (let c = 0; c < output.length; c++) {
       let x = flutterInput ? flutterInput[c][base] * (1 - fraction) + flutterInput[c][Math.min(base + 1, n - 1)] * fraction : output[c][i];
       x *= transient;
-      if (wet) x = x * (1 - wet) + wet * Math.tanh(x * drive) / drive;
+      if (wet) {
+        const tape = Math.tanh(x * drive) / drive;
+        const tube = (Math.tanh(x * drive + bias) - biasValue) / (drive * (1 - biasValue * biasValue));
+        const saturated = tape * .55 + tube * .45;
+        const dcFree = saturated - previousWet[c] + dcPole * previousDc[c];
+        previousWet[c] = saturated; previousDc[c] = dcFree;
+        x = x * (1 - wet) + wet * dcFree;
+      }
       output[c][i] = Number.isFinite(x) ? x * gain : 0;
     }
     if (i % 65536 === 0) progress(0.7 + i / n * (params.allpass > 0 ? 0.2 : 0.3));
   }
+  exciteAir(output, sampleRate, params.air);
   return phaseRotate(output, sampleRate, params.allpass, p => progress(0.9 + p * 0.1));
 }
 
-export function finish(channels, params) {
+export function finish(channels, params, sampleRate = 44100) {
+  const sourceBelowGate = params.noiseEnabled && integratedLufs(channels, sampleRate) === null;
+  if (params.noiseEnabled) addShapedNoise(channels, sampleRate, params.noiseDb);
+  monoSubBass(channels, sampleRate, params.monoBass);
   const before = analyze(channels);
-  const attenuation = params.protect && before.peak > params.ceiling ? 10 ** ((params.ceiling - before.peak) / 20) : 1;
-  if (attenuation < 1) for (const ch of channels) for (let i = 0; i < ch.length; i++) ch[i] *= attenuation;
-  return { channels, stats: analyze(channels), attenuation: 20 * Math.log10(attenuation) };
+  const inputLufs = integratedLufs(channels, sampleRate);
+  const requestedGainDb = params.loudnessEnabled && inputLufs !== null && !sourceBelowGate ? Math.min(24, params.targetLufs - inputLufs) : 0;
+  const gainDb = params.protect ? Math.min(requestedGainDb, params.ceiling - before.peak) : requestedGainDb;
+  const gain = 10 ** (gainDb / 20);
+  if (gainDb !== 0) for (const ch of channels) for (let i = 0; i < ch.length; i++) ch[i] *= gain;
+  const outputLufs = gainDb === 0 ? inputLufs : integratedLufs(channels, sampleRate);
+  const loudness = { enabled: !!params.loudnessEnabled, target: params.loudnessEnabled ? params.targetLufs : null, measuredBeforeGain: inputLufs, measured: outputLufs, requestedGainDb, appliedGainDb: gainDb, sourceBelowGate: !!sourceBelowGate, peakLimited: gainDb < requestedGainDb - .001, targetReached: !!params.loudnessEnabled && outputLufs !== null && Math.abs(outputLufs - params.targetLufs) < .2 };
+  return { channels, stats: { ...analyze(channels), lufs: outputLufs }, attenuation: Math.min(0, gainDb - requestedGainDb), loudness };
 }
 
 // PCM with TPDF dither. Dither is skipped on exact silence.
-export function encodeWav(channels, sampleRate, bits = 24, metadata = {}) {
+export function encodeWav(channels, sampleRate, bits = 24, metadata = {}, useDither = true) {
   if (![16, 24].includes(bits)) throw new Error('Bit depth tidak didukung.');
   const count = channels.length, frames = channels[0].length, bytes = bits / 8;
   const dataBytes = frames * count * bytes;
@@ -132,7 +152,7 @@ export function encodeWav(channels, sampleRate, bits = 24, metadata = {}) {
   let offset = 44;
   for (let i = 0; i < frames; i++) for (const ch of channels) {
     const x = Number.isFinite(ch[i]) ? ch[i] : 0;
-    const dither = x === 0 ? 0 : Math.random() - Math.random();
+    const dither = !useDither || x === 0 ? 0 : Math.random() - Math.random();
     const value = Math.max(-scale, Math.min(scale - 1, Math.round(x * scale + dither)));
     if (bits === 16) view.setInt16(offset, value, true);
     else { view.setUint8(offset, value & 255); view.setUint8(offset + 1, (value >> 8) & 255); view.setUint8(offset + 2, (value >> 16) & 255); }

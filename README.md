@@ -61,12 +61,44 @@ Perubahan parameter membuat hasil lama tidak tersedia untuk ekspor sampai dipros
 | Multiband de-harsh | Tiga peaking EQ, Q 2.8, maksimum −4.5 dB di 3.15/4.4/6.25 kHz | 85% |
 | Studio room | Convolution reverb, IR sintetis pendek atau IR WAV pilihan | 16% |
 | Transient punch | Penguatan transient berdasarkan perbedaan envelope cepat/lambat, stereo linked | 75% |
-| Tape warmth | Campuran saturasi tanh lembut | 20% tambahan |
+| Analog warmth | Campuran saturasi tube dan tape | 20% tambahan |
 | Tape micro-flutter | Delay termodulasi halus, sama untuk kedua channel | 55% |
 | Output gain | Gain −6 sampai +6 dB sebelum EQ/reverb | 0 dB |
 | Proteksi sample peak | Pengurangan gain global hanya bila melebihi batas | −1 dBFS |
 
 Preset Referensi mengikuti nilai yang tampak pada gambar pertama dan nilai flutter pada gambar kedua. Nilai tinggi dapat terdengar jelas. Preset **Natural** memakai pitch 0, tempo 100%, de-harsh 15%, room 3%, punch 8%, warmth 6%, flutter 0%, dan proteksi −1 dBFS.
+
+### High Edit · versi 1.3
+
+Pilih **High Edit (target deteksi 25%)** untuk seluruh nilai pada kedua gambar terakhir. Angka 25% adalah nama/tujuan preset, **bukan skor yang diukur atau dijamin**. Filter all-pass tidak menyediakan penghapusan SynthID/AudioSeal yang tervalidasi.
+
+| Parameter | Nilai |
+|---|---:|
+| Pitch micro-shift | +42 cents |
+| Tempo adjustment | 102% |
+| Multiband de-squeak, 3.15/4.4/6.25 kHz | 85% |
+| Studio room IR convolution | 16% |
+| Transient punch | 75% |
+| 12-stage all-pass | 95% |
+| Tape micro-flutter | 55% |
+| Harmonic air exciter, 16–22 kHz | 70% |
+| Analog warmth, tube & tape | 70% |
+| Psychoacoustic noise | Aktif, −58 dBFS RMS |
+| Broadcast loudness | Aktif, target −11.5 LUFS |
+| Mono sub-bass | 140 Hz |
+| TPDF dither saat ekspor | Aktif |
+| Output gain / proteksi sample peak | 0 dB / −1 dBFS |
+
+Salinan siap impor: `public/presets/high-edit.json`. Preset lama tetap tersedia. Noise, normalisasi LUFS, air exciter, dan mono bass tidak otomatis aktif pada preset lama. Perubahan dither hanya memengaruhi encoding unduhan, sehingga tidak memerlukan proses audio ulang.
+
+- **Air exciter:** membentuk harmonik melalui nonlinear processing dengan interpolasi 4× dan filter pita atas; bukan pemulihan detail yang hilang. Batas atas mengikuti Nyquist (sekitar 21.6 kHz pada audio 44.1 kHz), dan efek dilewati bila Nyquist tidak melebihi 16 kHz.
+- **Analog warmth:** campuran saturasi simetris tape dan asimetris tube, dengan DC blocker pada jalur efek.
+- **Psychoacoustic noise:** noise stereo independen dengan shaping tetap 1.2–12 kHz, bukan analisis masking adaptif. Level slider adalah RMS noise sebelum gain loudness akhir; efek ini juga dapat menambahkan hiss pada bagian hening. TPDF merupakan dither terpisah sesuai bit depth saat encoding WAV.
+- **LUFS:** K weighting, blok 400 ms, hop 100 ms, gate absolut −70 LUFS dan gate relatif −10 LU, untuk mono/stereo. Gain normalisasi positif dibatasi 24 dB. Sumber di bawah gate tidak diperkeras hanya karena noise ditambahkan. Hasil di bawah gate atau lebih pendek dari 400 ms tidak diberi angka LUFS palsu.
+- **Proteksi peak:** gain diturunkan bila perlu agar sample peak tidak melewati ceiling. Target LUFS bisa tidak tercapai; antarmuka dan laporan menampilkan nilai aktual serta status pembatasan. Tidak ada kompresi otomatis untuk memaksa target, dan intersample/true peak tidak diukur.
+- **Mono bass:** mengurangi komponen side di bawah cutoff dengan high-pass 24 dB/oktav; komponen mid dipertahankan. Transisinya bertahap, bukan batas frekuensi mendadak.
+
+Referensi pengukuran: [ITU-R BS.1770-5](https://www.itu.int/dms_pubrec/itu-r/rec/bs/R-REC-BS.1770-5-202311-I%21%21PDF-E.pdf). Implementasi telah dibandingkan dengan FFmpeg `ebur128` pada sinyal uji mono/stereo 44.1/48 kHz, dengan selisih di bawah 0.06 LU; ini bukan sertifikasi alat ukur.
 
 ### Preset gambar tambahan · versi 1.1
 
@@ -82,7 +114,7 @@ Pilih **Referensi gambar · +42c / 12-stage** untuk parameter gambar terbaru:
 | 12-Stage All-Pass | 95% |
 | Tape Micro-Flutter Drift | 55% |
 
-**Tape warmth = 0%** pada preset baru karena nilainya tidak terlihat pada gambar. Output gain = 0 dB dan proteksi sample peak = −1 dBFS. Preset lama **Referensi · karakter kuat** (+46 cents) tetap tersedia. Natural, Warm dan Bypass memakai all-pass 0%.
+**Tape warmth = 0%** pada preset Referensi gambar versi 1.1 karena nilainya tidak terlihat pada gambar saat itu. Output gain = 0 dB dan proteksi sample peak = −1 dBFS. Preset lama **Referensi · karakter kuat** (+46 cents) tetap tersedia. Natural, Warm dan Bypass memakai all-pass 0%.
 
 All-pass memakai 12 filter orde pertama berantai. Persentase mengatur kedalaman koefisien fase, bukan campuran dry/wet; ini mempertahankan respons magnitudo unit tanpa comb filtering akibat pencampuran. Channel stereo memakai koefisien sama dengan state terpisah. Pada 0%, tahap dilewati sepenuhnya. Pada nilai aktif, tambahan ekor 80 ms menampung peluruhan filter sebelum convolution room. Rotasi fase dapat mengubah bentuk transient dan sample peak meskipun magnitudo spektrum filter tetap rata.
 
@@ -103,7 +135,7 @@ Metadata RIFF `LIST/INFO` benar-benar ditulis ke file WAV:
 | Tag | Nilai |
 |---|---|
 | `INAM` | Nama lagu |
-| `ISFT` | `AIHUMN Studio 1.2`, aplikasi pemroses sebenarnya |
+| `ISFT` | `AIHUMN Studio 1.3`, aplikasi pemroses sebenarnya |
 | `ICMT` | Profil pilihan `Ableton Live 12 Master` dan keterangan bahwa hasil diproses AIHUMN, bukan render aplikasi Ableton |
 
 Fitur ini tidak menyamarkan asal audio sebagai render Ableton, mengintegrasikan aplikasi Ableton, menulis proyek `.als`, atau membuktikan bahwa musik dibuat manusia. Metadata ekspor dan status watermark juga masuk ke laporan JSON. Dukungan pembacaan tag dan judul UTF-8 berbeda antar pemutar/DAW; data PCM tetap mengikuti spesifikasi RIFF WAV dengan padding chunk yang benar.
@@ -116,8 +148,8 @@ Reverb bawaan merupakan **simulasi ruang**, bukan rekaman ruang fisik. Impor IR 
 - Mengubah suara tidak mengubah asal lagu AI menjadi karya yang seluruhnya dibuat manusia. Aplikasi tidak memberikan skor deteksi, klaim “guaranteed human”, penghilangan watermark, atau identitas DAW palsu.
 - Tidak ada jaminan bahwa efek bebas artefak. Dengarkan hasil dan gunakan Bypass atau nilai lebih kecil bila efek mengganggu vokal, stereo, atau transient. Time stretching pada master stereo tidak setara dengan penyuntingan stem secara individual.
 - Decode browser saat ini memakai **44.1 kHz**. File dengan sample rate lain dikonversi saat decode; metadata bit depth asli tidak dipertahankan. WAV hasil adalah PCM dari hasil decode/pemrosesan, bukan konversi bit-perfect file sumber. WAV 24-bit tidak memulihkan detail yang hilang dari MP3.
-- Sample peak/RMS/crest diukur dari sampel nyata. RMS bukan LUFS. Proteksi adalah sample-peak attenuation, bukan true-peak limiter dengan oversampling. Intersample peak tidak diukur. Tidak ada auto-normalisasi yang menaikkan gain lagu pelan.
-- Ekspor PCM memakai TPDF dither. Jika peak hasil melampaui 0 dBFS, unduhan ditahan: aktifkan proteksi atau turunkan output gain, lalu proses ulang. Ini mencegah clipping tambahan saat ekspor.
+- Sample peak/RMS/crest diukur dari sampel nyata. RMS bukan LUFS. Proteksi adalah sample-peak attenuation, bukan true-peak limiter dengan oversampling. Intersample peak tidak diukur. Normalisasi LUFS opsional dapat menaikkan gain hingga 24 dB, dibatasi proteksi peak bila aktif.
+- Ekspor PCM menyediakan TPDF dither opsional, aktif secara default. Jika peak hasil melampaui 0 dBFS, unduhan ditahan: aktifkan proteksi atau turunkan output gain, lalu proses ulang. Ini mencegah clipping tambahan saat ekspor.
 - Maksimal 60 MB per file, 6 menit per lagu, 6 lagu per antrean, dan 160 MB total sampel sumber terdekompresi. Hasil, salinan kerja, dan convolution memakai memori tambahan. Pada ponsel, proses satu lagu pendek dahulu.
 - Pemrosesan inti berjalan di worker; EQ dan convolution memakai OfflineAudioContext. Pembatalan worker segera, sedangkan tahap OfflineAudioContext selesai dahulu sebelum pembatalan diterapkan.
 - Dukungan format bergantung pada codec browser. WAV PCM dan MP3 adalah pilihan praktis. Gunakan versi browser modern yang mendukung Web Audio, module worker, dan dialog.
@@ -129,6 +161,7 @@ Reverb bawaan merupakan **simulasi ruang**, bukan rekaman ruang fisik. Impor IR 
 src/main.js          Antarmuka, antrean, A/B, preset, impor dan ekspor
 src/audio.js         Web Audio, convolution, demo dan orchestration worker
 src/dsp.js           SoundTouch, transient/warmth/flutter, metrik dan WAV
+src/mastering.js     LUFS, air exciter, shaped noise dan mono bass
 src/audio.worker.js  Worker DSP/encoding
 src/style.css       Tampilan responsive
 tests/dsp.test.js    Uji numerik audio
@@ -141,8 +174,9 @@ public/vendor/      Distribusi SoundTouchJS tanpa modifikasi
 ## Verifikasi yang dilakukan
 
 - Build produksi Vite berhasil.
-- Empat belas uji numerik dan format lulus: bypass, separasi stereo, frekuensi pitch, durasi tempo, kombinasi pitch/tempo, peak/silence, header dan interleave PCM, respons magnitudo/energi all-pass pada empat sample rate, stabilitas dan stereo, validasi file preset, serta penulisan metadata dan padding RIFF untuk mono/stereo 16/24-bit.
+- Dua puluh uji numerik dan format lulus, termasuk LUFS/gating, target gain dan peak, noise/dither, mono bass, air exciter serta regresi: bypass, separasi stereo, frekuensi pitch, durasi tempo, kombinasi pitch/tempo, peak/silence, header dan interleave PCM, respons magnitudo/energi all-pass pada empat sample rate, stabilitas dan stereo, validasi file preset, serta penulisan metadata dan padding RIFF untuk mono/stereo 16/24-bit.
 - Chrome desktop dan viewport mobile: impor demo, proses, pemutaran, A/B, ekspor WAV 24-bit, impor kembali, batch, preset custom tersimpan, penghapusan preset, error file rusak, dan dialog panduan berhasil.
+- High Edit: seluruh nilai preset, switch noise/LUFS/dither, laporan metrik, ekspor/impor preset, WAV 24-bit dan impor kembali, serta layout mobile 390 px berhasil diperiksa.
 - Tidak ada error JavaScript pada alur browser tersebut.
 - Header CSP Vercel diuji pada preview; aplikasi, worker, dan unduhan tetap berfungsi tanpa resource eksternal.
 - Ekspor bypass 16-bit dibandingkan terhadap PCM masukan (selisih maksimum 2 LSB setelah decode dan dither), IR custom berhasil, ekspor di atas 0 dBFS diblokir, dan pembatalan file 3 menit mempertahankan sumber.

@@ -19,17 +19,20 @@ const controls = [
   ['punch', 'Transient punch', 'Tegaskan serangan drum & instrumen.', 0, 100, 1, '%'],
   ['allpass', '12-stage all-pass', 'Rotasi fase 12 tahap · pemrosesan eksperimental.', 0, 100, 1, '%'],
   ['flutter', 'Tape micro-flutter', 'Modulasi waktu halus, opsional.', 0, 100, 1, '%'],
-  ['warmth', 'Tape warmth', 'Saturasi lembut untuk warna harmonik.', 0, 100, 1, '%'],
+  ['air', 'Harmonic air exciter', 'Harmonik 16–22 kHz, dibatasi Nyquist audio.', 0, 100, 1, '%'],
+  ['warmth', 'Analog warmth · tube & tape', 'Harmonik genap & ganjil; saturasi lembut.', 0, 100, 1, '%'],
+  ['noiseDb', 'Psychoacoustic noise', 'Noise berwarna · RMS sebelum gain akhir.', -90, -40, .5, 'dBFS'],
+  ['targetLufs', 'Broadcast loudness', 'Target integrated LUFS; dibatasi proteksi peak.', -24, -8, .5, 'LUFS'],
 ];
 let params = { ...defaults }, tracks = [], selected = null, mode = 'original', ir = null, irName = '', irVersion = 0;
 let busy = false, importing = false, controller = null, context, source, gain, playing = false, position = 0, startedAt = 0, downloadBusy = false;
 let customs = {};
 try { const raw = JSON.parse(localStorage.getItem('aihumn.presets.v1') || '{}'); for (const [key, p] of Object.entries(raw)) if (p && typeof p.name === 'string' && p.values) customs[key] = p; } catch { /* Storage is optional. */ }
 const selectedTrack = () => tracks.find(t => t.id === selected);
-const fingerprint = () => JSON.stringify([params, irVersion]);
+const fingerprint = () => { const { dither, ...audioParams } = params; return JSON.stringify([audioParams, irVersion]); };
 const fresh = track => track?.result && track.signature === fingerprint();
 const activeBuffer = () => { const t = selectedTrack(); return mode === 'master' && fresh(t) ? t.result.buffer : t?.buffer; };
-const formatting = (key, value, unit) => `${key === 'pitch' && value > 0 ? '+' : ''}${['room', 'tempo'].includes(key) ? value.toFixed(1) : value} ${unit}`;
+const formatting = (key, value, unit) => `${key === 'pitch' && value > 0 ? '+' : ''}${['room', 'tempo', 'noiseDb', 'targetLufs'].includes(key) ? value.toFixed(1) : value} ${unit}`;
 
 $('#app').innerHTML = `
 <header class="app-header">
@@ -48,6 +51,7 @@ $('#app').innerHTML = `
       <input type="range" id="seek" class="seek" min="0" max="1000" value="0" aria-label="Posisi pemutaran" disabled />
       <div class="transport"><div class="playback-controls"><button class="icon-button" id="restart" aria-label="Kembali ke awal" disabled>${icon('skip-back')}</button><button class="play-button" id="play" aria-label="Putar audio" disabled>${icon('play')}</button><span class="play-time"><b id="current-time">00:00</b><span>/</span><span id="duration">00:00</span></span></div><div class="ab-switch" role="group" aria-label="Bandingkan audio"><button class="active" id="original" aria-pressed="true">A <span>Asli</span></button><button id="master" aria-pressed="false" disabled>B <span>Hasil</span></button></div><div class="volume-control">${icon('volume-2')}<input id="volume" type="range" min="0" max="100" value="70" aria-label="Volume pemutaran" /></div></div>
       <div class="meter-strip"><div><span>SAMPLE PEAK</span><strong id="peak">— <small>dBFS</small></strong></div><div><span>RMS LEVEL</span><strong id="rms">— <small>dBFS</small></strong></div><div><span>CREST FACTOR</span><strong id="crest">— <small>dB</small></strong></div><label class="match-label"><input type="checkbox" id="match" checked /> Samakan level A/B <span title="Menyamakan RMS preview dengan menurunkan sisi yang lebih keras. Tidak mengubah ekspor.">${icon('info')}</span></label></div>
+      <div class="loudness-readout"><div><span>INTEGRATED</span><strong id="integrated">— <small>LUFS</small></strong></div><p id="loudness-result" role="status">Loudness diukur dari audio, bukan skor deteksi AI.</p></div>
     </section>
     <section class="queue-section"><div class="queue-heading"><h2>Antrean audio <span id="queue-count">00</span></h2><span>Sesi lokal · tidak diunggah</span></div><div id="queue" class="queue"><div class="queue-empty">${icon('music-2')}<span>File Anda akan muncul di sini.<small>Tambahkan beberapa lagu untuk proses berurutan.</small></span></div></div></section>
     <section class="export-card"><div class="export-heading">${icon('download')}<div><h2>Siapkan master Anda</h2><p>WAV lossless · sample rate mengikuti hasil decode browser</p></div></div><div class="export-options"><label for="bit-depth">Format ekspor<select id="bit-depth"><option value="24">WAV · 24-bit PCM</option><option value="16">WAV · 16-bit PCM</option></select></label><button id="download" class="button" disabled>${icon('download')} Unduh WAV</button><button id="report" class="icon-button" aria-label="Unduh laporan pemrosesan JSON" title="Unduh laporan pemrosesan" disabled>${icon('file-audio')}</button></div></section>
@@ -57,9 +61,11 @@ $('#app').innerHTML = `
   <aside class="parameters"><div class="parameter-heading"><div><span class="eyebrow">SHAPE YOUR SOUND</span><h2>Karakter & mastering</h2></div>${icon('settings-2')}</div>
     <div class="preset-block"><label for="preset">PRESET</label><div class="preset-row"><select id="preset"></select><button class="icon-button" id="save-preset" title="Simpan preset" aria-label="Simpan preset">${icon('save')}</button><button class="icon-button" id="delete-preset" title="Hapus preset custom" aria-label="Hapus preset custom" hidden>${icon('trash-2')}</button></div><div class="preset-files"><button class="text-button" id="import-preset">${icon('folder-open')} Impor preset</button><button class="text-button" id="export-preset">${icon('download')} Ekspor preset</button></div><div class="preset-caption" id="preset-caption">Mulai ringan. Dengarkan, lalu sesuaikan.</div></div>
     <div class="parameter-scroll"><div class="control-group-title"><span>01</span> TONE & TEXTURE</div>
-      ${controls.map(([key, label, detail, min, max, step, unit]) => `${key === 'allpass' ? '<div class="control-group-title output-title"><span>02</span> ALL-PASS & WATERMARK</div>' : ''}<div class="parameter-control"><div class="control-label"><label for="${key}">${label}</label><output id="${key}-value" for="${key}">${formatting(key, params[key], unit)}</output></div><p>${detail}</p><input id="${key}" data-param="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${params[key]}" /><div class="range-ends"><span>${min}${unit === '%' ? '%' : ''}</span><span>${max}${unit === '%' ? '%' : ''}</span></div></div>${key === 'allpass' ? `<div class="watermark-panel"><div class="watermark-heading"><strong>Referensi anti-watermark</strong><span>EKSPERIMEN</span></div><div class="watermark-row"><a href="https://deepmind.google/models/synthid/" target="_blank" rel="noopener noreferrer">SynthID ${icon('arrow-up-right')}</a><span>Belum diperiksa</span></div><div class="watermark-row"><a href="https://github.com/facebookresearch/audioseal" target="_blank" rel="noopener noreferrer">AudioSeal ${icon('arrow-up-right')}</a><span>Belum diperiksa</span></div><p>Detektor tidak terhubung. All-pass mengubah fase audio; penghapusan SynthID/AudioSeal belum diverifikasi.</p><button id="activate-allpass" class="button small">Aktifkan all-pass 95%</button><span id="allpass-status" class="allpass-status" role="status">All-pass nonaktif · 0%</span></div>` : ''}`).join('')}
+      ${controls.map(([key, label, detail, min, max, step, unit]) => `${key === 'allpass' ? '<div class="control-group-title output-title"><span>02</span> ALL-PASS & WATERMARK</div>' : ''}${key === 'noiseDb' ? '<div class="control-group-title output-title"><span>03</span> NOISE, LEVEL & STEREO</div><label class="toggle-row effect-toggle"><span>Tambahkan noise<small>Menambah hiss, termasuk pada bagian hening.</small></span><input id="noiseEnabled" type="checkbox" role="switch" /></label>' : key === 'targetLufs' ? '<label class="toggle-row effect-toggle"><span>Normalisasi loudness<small>Gain terukur; tanpa memaksa kompresi.</small></span><input id="loudnessEnabled" type="checkbox" role="switch" /></label>' : ''}<div class="parameter-control"><div class="control-label"><label for="${key}">${label}</label><output id="${key}-value" for="${key}">${formatting(key, params[key], unit)}</output></div><p>${detail}</p><input id="${key}" data-param="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${params[key]}" /><div class="range-ends"><span>${min}${unit === '%' ? '%' : ''}</span><span>${max}${unit === '%' ? '%' : ''}</span></div></div>${key === 'allpass' ? `<div class="watermark-panel"><div class="watermark-heading"><strong>Referensi anti-watermark</strong><span>EKSPERIMEN</span></div><div class="watermark-row"><a href="https://deepmind.google/models/synthid/" target="_blank" rel="noopener noreferrer">SynthID ${icon('arrow-up-right')}</a><span>Belum diperiksa</span></div><div class="watermark-row"><a href="https://github.com/facebookresearch/audioseal" target="_blank" rel="noopener noreferrer">AudioSeal ${icon('arrow-up-right')}</a><span>Belum diperiksa</span></div><p>Detektor tidak terhubung. All-pass mengubah fase audio; penghapusan SynthID/AudioSeal belum diverifikasi.</p><button id="activate-allpass" class="button small">Aktifkan all-pass 95%</button><span id="allpass-status" class="allpass-status" role="status">All-pass nonaktif · 0%</span></div>` : ''}`).join('')}
+      <div class="ceiling-row bass-control"><label for="monoBass">Mono sub-bass (&lt; Hz)</label><select id="monoBass"><option value="0">Nonaktif</option><option value="80">80 Hz</option><option value="100">100 Hz</option><option value="120">120 Hz</option><option value="140">140 Hz</option><option value="160">160 Hz</option><option value="200">200 Hz</option></select><p>Lebar stereo dikurangi di bawah cutoff, 24 dB/oktav.</p></div>
+      <label class="toggle-row dither-toggle"><span>TPDF dither saat ekspor<small>Noise kuantisasi sesuai bit depth WAV.</small></span><input id="dither" type="checkbox" role="switch" checked /></label>
       <div class="ir-section"><div><span>Room impulse response</span><small id="ir-label">Ruang sintetis pendek · bawaan</small></div><div class="ir-actions"><button class="text-button" id="load-ir">Pilih IR WAV</button><button class="icon-button" id="clear-ir" aria-label="Hapus impulse response" hidden>${icon('x')}</button></div></div>
-      <div class="control-group-title output-title"><span>03</span> OUTPUT GUARD</div>
+      <div class="control-group-title output-title"><span>04</span> OUTPUT GUARD</div>
       <div class="parameter-control"><div class="control-label"><label for="trim">Output gain</label><output id="trim-value">0 dB</output></div><input id="trim" data-param="trim" type="range" min="-6" max="6" step="0.5" value="0" /></div>
       <label class="toggle-row"><span>Proteksi sample peak<small>Reduksi gain transparan, tanpa kompresi.</small></span><input id="protect" type="checkbox" role="switch" checked /></label>
       <div class="ceiling-row"><label for="ceiling">Batas peak</label><select id="ceiling"><option value="-1">−1.0 dBFS</option><option value="-1.5">−1.5 dBFS</option><option value="-2">−2.0 dBFS</option></select></div>
@@ -72,7 +78,7 @@ $('#app').innerHTML = `
 <input id="ir-input" type="file" accept=".wav,audio/wav" hidden />
 <input id="preset-input" type="file" accept=".json,application/json" hidden />
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-<dialog id="help-dialog"><div class="dialog-heading"><h2>Kenali studio Anda</h2><button class="icon-button" data-close="help-dialog" aria-label="Tutup panduan">${icon('x')}</button></div><div class="help-steps"><p><b>01 · Tambahkan audio</b>Pilih rekaman dari perangkat atau coba demo. Maksimal 6 menit per lagu, mono/stereo, dengan total audio terdekompresi 160 MB.</p><p><b>02 · Bentuk karakter</b>Natural memberi sentuhan ringan. Referensi mengikuti nilai gambar dan menghasilkan perubahan yang lebih jelas. Bypass mematikan seluruh efek.</p><p><b>03 · Proses & bandingkan</b>Klik Proses audio, lalu dengarkan A/B. Saat parameter berubah, proses ulang untuk mendengar pengaturan baru. Tombol spasi memutar atau menjeda audio.</p><p><b>04 · Ekspor hasil</b>Unduh WAV 16/24-bit. Ekspor 24-bit tidak mengembalikan informasi yang hilang dari MP3. Level RMS dan sample peak bukan LUFS atau true peak.</p></div><p class="dialog-note">Efek dapat menghasilkan artefak, terutama pitch, tempo, dan flutter. Tidak ada klaim bypass detektor, penghapusan watermark, atau pemalsuan identitas DAW. Gunakan telinga dan preview A/B untuk menilai hasil.</p><button class="button primary" data-close="help-dialog">Mulai berkarya</button></dialog>
+<dialog id="help-dialog"><div class="dialog-heading"><h2>Kenali studio Anda</h2><button class="icon-button" data-close="help-dialog" aria-label="Tutup panduan">${icon('x')}</button></div><div class="help-steps"><p><b>01 · Tambahkan audio</b>Pilih rekaman dari perangkat atau coba demo. Maksimal 6 menit per lagu, mono/stereo, dengan total audio terdekompresi 160 MB.</p><p><b>02 · Bentuk karakter</b>Natural memberi sentuhan ringan. Referensi mengikuti nilai gambar dan menghasilkan perubahan yang lebih jelas. Bypass mematikan seluruh efek.</p><p><b>03 · Proses & bandingkan</b>Klik Proses audio, lalu dengarkan A/B. Saat parameter berubah, proses ulang untuk mendengar pengaturan baru. Tombol spasi memutar atau menjeda audio.</p><p><b>04 · Ekspor hasil</b>Unduh WAV 16/24-bit. Ekspor 24-bit tidak mengembalikan informasi yang hilang dari MP3. Integrated LUFS diukur dengan K-weighting dan gating; sample peak bukan true peak. High Edit memakai target -11,5 LUFS dengan prioritas proteksi peak. Target deteksi 25% belum diukur atau dijamin.</p></div><p class="dialog-note">Efek dapat menghasilkan artefak, terutama pitch, tempo, dan flutter. Tidak ada klaim bypass detektor, penghapusan watermark, atau pemalsuan identitas DAW. Gunakan telinga dan preview A/B untuk menilai hasil.</p><button class="button primary" data-close="help-dialog">Mulai berkarya</button></dialog>
 <dialog id="save-dialog"><form id="save-form"><div class="dialog-heading"><h2>Simpan karakter Anda</h2><button type="button" class="icon-button" data-close="save-dialog" aria-label="Tutup">${icon('x')}</button></div><label for="preset-name">Nama preset</label><input id="preset-name" type="text" maxlength="40" required placeholder="Misalnya: Vokal hangat" /><p class="dialog-note">Preset disimpan di browser ini. File impulse response perlu dipilih kembali pada sesi berikutnya.</p><button class="button primary" type="submit">Simpan preset</button></form></dialog>`;
 
 function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => { $('#toast').hidden = true; }, 6000); }
@@ -88,11 +94,14 @@ function updateControls() {
   $('#trim').value = params.trim; $('#trim-value').textContent = `${params.trim > 0 ? '+' : ''}${params.trim} dB`;
   $('#trim').style.setProperty('--fill', `${(params.trim + 6) / 12 * 100}%`);
   $('#protect').checked = params.protect; $('#ceiling').value = params.ceiling;
+  $('#noiseEnabled').checked = params.noiseEnabled; $('#loudnessEnabled').checked = params.loudnessEnabled;
+  $('#monoBass').value = params.monoBass; $('#dither').checked = params.dither;
   $('#allpass-status').textContent = params.allpass > 0 ? `All-pass ${params.allpass}% · berlaku saat proses audio` : 'All-pass nonaktif · 0%';
 }
 function changed() {
   stop(); mode = 'original'; position = 0;
   $('#preset-caption').textContent = $('#preset').value === 'screenshot' ? 'Nilai dari gambar: +42c · 102% · 85% · 16% · 75% · 95% · 55%. Tape warmth 0% karena nilainya tidak terlihat.' : params.pitch || params.tempo !== 100 || params.flutter || params.allpass ? 'Pitch, tempo, flutter atau rotasi fase aktif · dengarkan A/B.' : 'Mulai ringan. Dengarkan, lalu sesuaikan.';
+  if ($('#preset').value === 'highEdit') $('#preset-caption').textContent = 'Target deteksi 25% adalah nama/tujuan preset, belum diukur atau dijamin. Semua nilai mengikuti kedua gambar; noise dan perubahan timbre aktif.';
   updateControls(); update();
 }
 function setPreset(id) {
@@ -102,6 +111,9 @@ function setPreset(id) {
   params.trim = Math.min(6, Math.max(-6, Number(preset.values.trim) || 0));
   params.ceiling = [-1, -1.5, -2].includes(preset.values.ceiling) ? preset.values.ceiling : -1;
   params.protect = preset.values.protect !== false;
+  for (const key of ['noiseEnabled', 'loudnessEnabled']) params[key] = preset.values[key] === true;
+  params.dither = preset.values.dither !== false;
+  params.monoBass = [0, 80, 100, 120, 140, 160, 200].includes(preset.values.monoBass) ? preset.values.monoBass : 0;
   presetOptions(id); changed();
 }
 function update() {
@@ -128,10 +140,15 @@ function update() {
   $('#peak').innerHTML = `${stats ? db(stats.peak) : '—'} <small>dBFS</small>`;
   $('#rms').innerHTML = `${stats ? db(stats.rms) : '—'} <small>dBFS</small>`;
   $('#crest').innerHTML = `${stats ? db(stats.crest) : '—'} <small>dB</small>`;
+  $('#integrated').innerHTML = `${Number.isFinite(stats?.lufs) ? db(stats.lufs) : '—'} <small>LUFS</small>`;
+  const loudness = mode === 'master' && ready ? t.result.loudness : null;
+  $('#loudness-result').textContent = loudness?.enabled ? `${loudness.measured === null ? 'Tidak terukur' : `${db(loudness.measured)} LUFS`} · target ${params.targetLufs.toFixed(1)} LUFS${loudness.peakLimited ? ' · dibatasi peak; dinamika dipertahankan' : loudness.targetReached ? ' · target tercapai' : ' · target belum tercapai'}` : has && stats?.lufs === null ? 'Di bawah batas ukur atau durasi kurang dari 400 ms.' : 'K-weighted + gating · mono/stereo · bukan skor deteksi AI';
   $('#peak').classList.toggle('warning-text', stats?.peak >= 0);
   $('#queue').innerHTML = tracks.length ? tracks.map((tr, i) => `<div class="queue-row ${tr.id === selected ? 'selected' : ''}"><button class="track-select" data-select="${tr.id}"><span class="track-index">${String(i + 1).padStart(2, '0')}</span><span class="track-icon">${icon('file-audio')}</span><span class="track-info"><strong>${escape(tr.name)}</strong><small>${time(tr.buffer.duration)} · ${(tr.buffer.sampleRate / 1000).toFixed(1)} kHz · ${tr.buffer.numberOfChannels === 2 ? 'Stereo' : 'Mono'}</small></span></button><span class="track-state ${fresh(tr) ? 'done' : ''}">${tr.working ? 'Memproses' : tr.error ? 'Gagal' : fresh(tr) ? 'Siap ekspor' : tr.result ? 'Perlu proses ulang' : 'Belum diproses'}</span><button class="icon-button remove-track" data-remove="${tr.id}" aria-label="Hapus ${escape(tr.name)}" ${busy || importing ? 'disabled' : ''}>${icon('x')}</button></div>`).join('') : `<div class="queue-empty">${icon('music-2')}<span>File Anda akan muncul di sini.<small>Tambahkan beberapa lagu untuk proses berurutan.</small></span></div>`;
   document.querySelectorAll('.parameters input, .parameters select, #activate-allpass, #save-preset, #delete-preset, #import-preset, #export-preset, #load-ir, #clear-ir, #reset, #add-top, #demo, #upload-orb, #browse').forEach(el => { el.disabled = busy || importing; });
   $('#ceiling').disabled = busy || importing || !params.protect;
+  $('#noiseDb').disabled = busy || importing || !params.noiseEnabled;
+  $('#targetLufs').disabled = busy || importing || !params.loudnessEnabled;
   icons(); draw();
 }
 async function audioContext() { context ||= new AudioContext({ sampleRate: 44100 }); if (context.state === 'suspended') await context.resume(); return context; }
@@ -207,7 +224,8 @@ async function addFiles(files) {
       if (buffer.duration > 360 || buffer.numberOfChannels > 2) throw new Error('Maksimal 6 menit dan 2 channel per lagu.');
       const total = tracks.reduce((sum, t) => sum + t.buffer.length * t.buffer.numberOfChannels * 4, 0) + buffer.length * buffer.numberOfChannels * 4;
       if (total > 160 * 1024 ** 2) throw new Error('Batas memori sesi 160 MB tercapai. Hapus audio lain terlebih dahulu.');
-      const track = { id: crypto.randomUUID(), name: file.name, buffer, stats: analyze(Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c))) };
+      const measurement = await task('analyze', { channels: arrays(buffer), sampleRate: buffer.sampleRate });
+      const track = { id: crypto.randomUUID(), name: file.name, buffer, stats: measurement.stats };
       tracks.push(track); if (!selected) selected = track.id; added++;
     } catch (error) { toast(`${file.name}: ${error.name === 'EncodingError' ? 'Format/codec tidak dapat dibaca browser. Coba WAV atau MP3.' : error.message}`); }
   }
@@ -239,6 +257,9 @@ function saveBlob(blob, name) {
 $('#preset').onchange = e => setPreset(e.target.value);
 document.querySelectorAll('[data-param]').forEach(el => el.oninput = () => { params[el.dataset.param] = Number(el.value); presetOptions('custom'); changed(); });
 $('#protect').onchange = () => { params.protect = $('#protect').checked; presetOptions('custom'); changed(); };
+for (const key of ['noiseEnabled', 'loudnessEnabled']) $(`#${key}`).onchange = () => { params[key] = $(`#${key}`).checked; presetOptions('custom'); changed(); };
+$('#monoBass').onchange = () => { params.monoBass = Number($('#monoBass').value); presetOptions('custom'); changed(); };
+$('#dither').onchange = () => { params.dither = $('#dither').checked; presetOptions('custom'); update(); };
 $('#ceiling').onchange = () => { params.ceiling = Number($('#ceiling').value); presetOptions('custom'); changed(); };
 $('#reset').onclick = () => setPreset('natural');
 $('#activate-allpass').onclick = () => { params.allpass = 95; presetOptions('custom'); changed(); toast('All-pass 12 tahap diatur ke 95%. Proses audio untuk menerapkannya.'); };
@@ -296,14 +317,14 @@ $('#download').onclick = async () => {
   try {
     const bits = Number($('#bit-depth').value), profileId = $('#daw-profile').value, title = t.name.replace(/\.[^.]+$/, '');
     const metadata = exportMetadata(profileId, title);
-    const result = await task('encode', { channels: arrays(t.result.buffer), sampleRate: t.result.buffer.sampleRate, bits, metadata });
+    const result = await task('encode', { channels: arrays(t.result.buffer), sampleRate: t.result.buffer.sampleRate, bits, metadata, dither: params.dither });
     saveBlob(new Blob([result.wav], { type: 'audio/wav' }), `${title}-master${exportProfiles[profileId].suffix}-${bits}bit.wav`);
     toast('WAV dan metadata profil siap. File sumber tetap utuh.');
   } catch (e) { toast(`Ekspor gagal: ${e.message}`); } finally { downloadBusy = false; update(); }
 };
 $('#report').onclick = () => {
   const t = selectedTrack(); if (!fresh(t)) return;
-  const report = { application: APP_NAME, source: t.name, processedAt: new Date().toISOString(), input: { duration: t.buffer.duration, sampleRate: t.buffer.sampleRate, channels: t.buffer.numberOfChannels, ...t.stats }, output: { duration: t.result.buffer.duration, ...t.result.stats }, parameters: t.result.params, peakGainReductionDb: t.result.attenuation, impulseResponse: irName || 'Synthetic short room', exportSettings: { bitDepth: Number($('#bit-depth').value), profile: exportProfiles[$('#daw-profile').value].name, metadata: exportMetadata($('#daw-profile').value, t.name.replace(/\.[^.]+$/, '')) }, watermarkVerification: { synthid: 'not_checked', audioseal: 'not_checked', removalVerified: false }, notes: ['AI origin is unchanged. No detector score or human-authorship guarantee.', 'DAW profile is a user-selected metadata label, not evidence of DAW origin.', 'Peak is sample peak, RMS is unweighted; neither is true peak or LUFS.', 'Original file is not modified.'] };
+  const report = { application: APP_NAME, source: t.name, processedAt: new Date().toISOString(), input: { duration: t.buffer.duration, sampleRate: t.buffer.sampleRate, channels: t.buffer.numberOfChannels, ...t.stats }, output: { duration: t.result.buffer.duration, ...t.result.stats }, parameters: { ...t.result.params, dither: params.dither }, loudness: t.result.loudness, peakGainReductionDb: t.result.attenuation, impulseResponse: irName || 'Synthetic short room', exportSettings: { bitDepth: Number($('#bit-depth').value), dither: params.dither, profile: exportProfiles[$('#daw-profile').value].name, metadata: exportMetadata($('#daw-profile').value, t.name.replace(/\.[^.]+$/, '')) }, watermarkVerification: { synthid: 'not_checked', audioseal: 'not_checked', removalVerified: false }, notes: ['AI origin is unchanged. No detector score or human-authorship guarantee.', 'DAW profile is a user-selected metadata label, not evidence of DAW origin.', 'Peak is sample peak; RMS is unweighted. Integrated LUFS uses K-weighting and gating. No true-peak meter.', 'Original file is not modified.'] };
   saveBlob(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }), `${t.name.replace(/\.[^.]+$/, '')}-master-report.json`);
 };
 $('#load-ir').onclick = () => $('#ir-input').click();

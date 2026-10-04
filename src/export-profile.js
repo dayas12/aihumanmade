@@ -1,4 +1,4 @@
-export const APP_NAME = 'AIHUMN Studio 1.2';
+export const APP_NAME = 'AIHUMN Studio 1.3';
 export const exportProfiles = {
   standard: { name: 'AIHUMN · standar', suffix: '' },
   ableton12: { name: 'Ableton Live 12 Master', suffix: '-ableton12-profile' },
