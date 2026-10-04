@@ -1,0 +1,18 @@
+{
+  "schema": "aihumn.preset",
+  "version": 1,
+  "name": "Referensi gambar · +42c / 12-stage",
+  "values": {
+    "pitch": 42,
+    "tempo": 102,
+    "deharsh": 85,
+    "room": 16,
+    "punch": 75,
+    "allpass": 95,
+    "warmth": 0,
+    "flutter": 55,
+    "trim": 0,
+    "ceiling": -1,
+    "protect": true
+  }
+}
